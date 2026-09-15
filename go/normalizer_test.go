@@ -87,7 +87,7 @@ func TestNormalizeBodyDoesNotTreatDataStringAsSSE(t *testing.T) {
 
 func TestNormalizeResponseDoesNotTouchUnknownSchema(t *testing.T) {
 	tools := state.cache.Lookup([]byte(`{"tools":[{"name":"other","parameters":{"type":"object","properties":{"count":{"type":"integer"}}}}]}`))
-	body := []byte(`{"type":"response.output_item.done","item":{"type":"function_call","name":"wait","arguments":"{\"yield_time_ms\":120000.0}"}}`)
+	body := []byte(`{"type":"response.output_item.done","item":{"type":"function_call","name":"unknown","arguments":"{\"count\":120000.0}"}}`)
 	updated, changed := normalizeBody(body, tools)
 	if changed || string(updated) != string(body) {
 		t.Fatal("unknown schema was normalized")
@@ -114,6 +114,31 @@ func TestNormalizeResponseRepairsNamespacedCodexExecSource(t *testing.T) {
 	updated, changed := normalizeBody(body, nil)
 	if !changed || strings.Contains(string(updated), `session_id: 35879.0`) || !strings.Contains(string(updated), `session_id: 35879`) {
 		t.Fatalf("namespaced exec source was not normalized: changed=%v body=%s", changed, updated)
+	}
+}
+
+func TestNormalizeResponseRepairsDirectCodexExecCommandArguments(t *testing.T) {
+	body := []byte(`{"type":"response.output_item.done","item":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\",\"yield_time_ms\":2500.0,\"max_output_tokens\":1000.0}"}}`)
+	updated, changed := normalizeBody(body, nil)
+	if !changed {
+		t.Fatal("direct exec_command arguments were not normalized")
+	}
+	if strings.Contains(string(updated), `yield_time_ms\":2500.0`) || strings.Contains(string(updated), `max_output_tokens\":1000.0`) {
+		t.Fatalf("direct integer arguments still contain .0: %s", updated)
+	}
+	if !strings.Contains(string(updated), `yield_time_ms\":2500`) || !strings.Contains(string(updated), `max_output_tokens\":1000`) {
+		t.Fatalf("direct integer arguments missing normalized values: %s", updated)
+	}
+}
+
+func TestNormalizeResponseRepairsDirectWriteStdinObjectArguments(t *testing.T) {
+	body := []byte(`{"type":"response.output_item.done","item":{"type":"function_call","name":"functions__write_stdin","arguments":{"session_id":35879.0,"yield_time_ms":2500.5,"note":"keep"}}}`)
+	updated, changed := normalizeBody(body, nil)
+	if !changed || !strings.Contains(string(updated), `"session_id":35879`) || strings.Contains(string(updated), `"session_id":35879.0`) {
+		t.Fatalf("direct write_stdin arguments were not normalized: changed=%v body=%s", changed, updated)
+	}
+	if !strings.Contains(string(updated), `"yield_time_ms":2500.5`) || !strings.Contains(string(updated), `"note":"keep"`) {
+		t.Fatalf("fraction or unrelated field changed: %s", updated)
 	}
 }
 

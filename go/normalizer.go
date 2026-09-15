@@ -21,6 +21,22 @@ var codexIntegerSourceFields = map[string]struct{}{
 	"max_output_tokens": {},
 }
 
+var codexIntegerArgumentFields = map[string]map[string]struct{}{
+	"exec_command": {
+		"yield_time_ms":     {},
+		"max_output_tokens": {},
+	},
+	"write_stdin": {
+		"session_id":        {},
+		"yield_time_ms":     {},
+		"max_output_tokens": {},
+	},
+	"wait": {
+		"yield_time_ms":     {},
+		"max_output_tokens": {},
+	},
+}
+
 func normalizeResponse(raw []byte) ([]byte, error) {
 	var request pluginapi.ResponseTransformRequest
 	if err := json.Unmarshal(raw, &request); err != nil {
@@ -143,11 +159,65 @@ func normalizeNamedArguments(node map[string]any, catalog toolCatalog) bool {
 	if _, exists := node["arguments"]; !exists {
 		return false
 	}
-	schema, exists := catalog[name]
-	if exists && normalizeArguments(node, schema, name == "wait") {
-		return true
+	schema, hasSchema := catalog[name]
+	changed := hasSchema && normalizeArguments(node, schema, name == "wait")
+	if fields, ok := codexIntegerArgumentFields[codexToolName(name)]; ok {
+		changed = normalizeKnownIntegerArguments(node, fields) || changed
 	}
-	return isCodexExecName(name) && normalizeExecSource(node)
+	if isCodexExecName(name) {
+		changed = normalizeExecSource(node) || changed
+	}
+	return changed
+}
+
+func codexToolName(name string) string {
+	if separator := strings.LastIndex(name, "__"); separator >= 0 {
+		return name[separator+2:]
+	}
+	return name
+}
+
+func normalizeKnownIntegerArguments(node map[string]any, fields map[string]struct{}) bool {
+	switch value := node["arguments"].(type) {
+	case string:
+		decoder := json.NewDecoder(strings.NewReader(value))
+		decoder.UseNumber()
+		var object any
+		if err := decoder.Decode(&object); err != nil {
+			return false
+		}
+		if !normalizeKnownIntegerObject(object, fields) {
+			return false
+		}
+		updated, err := json.Marshal(object)
+		if err != nil {
+			return false
+		}
+		node["arguments"] = string(updated)
+		return true
+	case map[string]any:
+		return normalizeKnownIntegerObject(value, fields)
+	default:
+		return false
+	}
+}
+
+func normalizeKnownIntegerObject(value any, fields map[string]struct{}) bool {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	changed := false
+	for key, child := range object {
+		if _, ok := fields[key]; !ok {
+			continue
+		}
+		if coerced, ok := integralNumber(child); ok {
+			object[key] = coerced
+			changed = true
+		}
+	}
+	return changed
 }
 
 func isCodexExecName(name string) bool {
