@@ -4,12 +4,22 @@ import (
 	"bytes"
 	"encoding/json"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 const maxSafeJSONInt = 9007199254740991
+
+// Responses Lite exposes Codex tools as a custom `exec` source string, so the
+// nested tool schemas are present only in prose. These fields are integer
+// runtime parameters even though that prose uses TypeScript's `number` type.
+var codexIntegerSourceFields = map[string]struct{}{
+	"session_id":        {},
+	"yield_time_ms":     {},
+	"max_output_tokens": {},
+}
 
 func normalizeResponse(raw []byte) ([]byte, error) {
 	var request pluginapi.ResponseTransformRequest
@@ -134,10 +144,165 @@ func normalizeNamedArguments(node map[string]any, catalog toolCatalog) bool {
 		return false
 	}
 	schema, exists := catalog[name]
-	if !exists {
+	if exists && normalizeArguments(node, schema, name == "wait") {
+		return true
+	}
+	return isCodexExecName(name) && normalizeExecSource(node)
+}
+
+func isCodexExecName(name string) bool {
+	return name == "exec" || strings.HasSuffix(name, "__exec")
+}
+
+func normalizeExecSource(node map[string]any) bool {
+	arguments, ok := node["arguments"].(string)
+	if !ok {
 		return false
 	}
-	return normalizeArguments(node, schema, name == "wait")
+	updated, changed := normalizeSourceIntegers(arguments)
+	if changed {
+		node["arguments"] = updated
+	}
+	return changed
+}
+
+func normalizeSourceIntegers(source string) (string, bool) {
+	if !strings.Contains(source, ".") {
+		return source, false
+	}
+	bytesSource := []byte(source)
+	changed := false
+	for index := 0; index < len(bytesSource); {
+		switch bytesSource[index] {
+		case '\'', '"', '`':
+			index = skipSourceString(bytesSource, index)
+			continue
+		case '/':
+			if index+1 < len(bytesSource) && bytesSource[index+1] == '/' {
+				index = skipSourceLineComment(bytesSource, index+2)
+				continue
+			}
+			if index+1 < len(bytesSource) && bytesSource[index+1] == '*' {
+				index = skipSourceBlockComment(bytesSource, index+2)
+				continue
+			}
+		}
+
+		if !isSourceIdentifierStart(bytesSource[index]) {
+			index++
+			continue
+		}
+		start := index
+		index++
+		for index < len(bytesSource) && isSourceIdentifierPart(bytesSource[index]) {
+			index++
+		}
+		if _, ok := codexIntegerSourceFields[string(bytesSource[start:index])]; !ok {
+			continue
+		}
+		valueStart := skipSourceSpace(bytesSource, index)
+		if valueStart >= len(bytesSource) || bytesSource[valueStart] != ':' {
+			continue
+		}
+		valueStart = skipSourceSpace(bytesSource, valueStart+1)
+		valueEnd := scanSourceNumber(bytesSource, valueStart)
+		if valueEnd == valueStart {
+			continue
+		}
+		value, ok := integralNumber(json.Number(string(bytesSource[valueStart:valueEnd])))
+		if !ok {
+			continue
+		}
+		replacement := []byte(strconv.FormatInt(value, 10))
+		if bytes.Equal(replacement, bytesSource[valueStart:valueEnd]) {
+			continue
+		}
+		bytesSource = append(bytesSource[:valueStart], append(replacement, bytesSource[valueEnd:]...)...)
+		index = valueStart + len(replacement)
+		changed = true
+	}
+	return string(bytesSource), changed
+}
+
+func skipSourceString(source []byte, index int) int {
+	quote := source[index]
+	index++
+	for index < len(source) {
+		if source[index] == '\\' {
+			index += 2
+			continue
+		}
+		if source[index] == quote {
+			return index + 1
+		}
+		index++
+	}
+	return len(source)
+}
+
+func skipSourceLineComment(source []byte, index int) int {
+	for index < len(source) && source[index] != '\n' {
+		index++
+	}
+	return index
+}
+
+func skipSourceBlockComment(source []byte, index int) int {
+	for index+1 < len(source) {
+		if source[index] == '*' && source[index+1] == '/' {
+			return index + 2
+		}
+		index++
+	}
+	return len(source)
+}
+
+func skipSourceSpace(source []byte, index int) int {
+	for index < len(source) && (source[index] == ' ' || source[index] == '\t' || source[index] == '\r' || source[index] == '\n') {
+		index++
+	}
+	return index
+}
+
+func scanSourceNumber(source []byte, index int) int {
+	start := index
+	if index < len(source) && (source[index] == '+' || source[index] == '-') {
+		index++
+	}
+	for index < len(source) && source[index] >= '0' && source[index] <= '9' {
+		index++
+	}
+	if index < len(source) && source[index] == '.' {
+		index++
+	}
+	for index < len(source) && source[index] >= '0' && source[index] <= '9' {
+		index++
+	}
+	if index < len(source) && (source[index] == 'e' || source[index] == 'E') {
+		index++
+		if index < len(source) && (source[index] == '+' || source[index] == '-') {
+			index++
+		}
+		exponent := index
+		for index < len(source) && source[index] >= '0' && source[index] <= '9' {
+			index++
+		}
+		if index == exponent {
+			return start
+		}
+	}
+	if index == start || (index == start+1 && (source[start] == '+' || source[start] == '-')) {
+		return start
+	}
+	return index
+}
+
+func isSourceIdentifierStart(value byte) bool {
+	return value == '_' || value == '$' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func isSourceIdentifierPart(value byte) bool {
+	return isSourceIdentifierStart(value) || value >= '0' && value <= '9'
 }
 
 func normalizeArguments(node map[string]any, schema toolSchema, waitTool bool) bool {

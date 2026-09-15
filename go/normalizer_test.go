@@ -94,6 +94,44 @@ func TestNormalizeResponseDoesNotTouchUnknownSchema(t *testing.T) {
 	}
 }
 
+func TestNormalizeResponseRepairsNestedCodexToolIntegerInExecSource(t *testing.T) {
+	tools := state.cache.Lookup([]byte(`{"input":[{"type":"additional_tools","tools":[{"type":"namespace","name":"functions","tools":[{"type":"custom","name":"exec","description":"nested tools include write_stdin(session_id: number)"}]}]}]}`))
+	body := []byte(`{"type":"response.output_item.done","item":{"type":"function_call","name":"exec","arguments":"await tools.write_stdin({ session_id: 35879.0, yield_time_ms: 10000.0 });"}}`)
+	updated, changed := normalizeBody(body, tools)
+	if !changed {
+		t.Fatal("nested Codex tool source was not normalized")
+	}
+	if strings.Contains(string(updated), `session_id: 35879.0`) || strings.Contains(string(updated), `yield_time_ms: 10000.0`) {
+		t.Fatalf("nested integer arguments still contain .0: %s", updated)
+	}
+	if !strings.Contains(string(updated), `session_id: 35879`) || !strings.Contains(string(updated), `yield_time_ms: 10000`) {
+		t.Fatalf("nested integer arguments missing normalized values: %s", updated)
+	}
+}
+
+func TestNormalizeResponseRepairsNamespacedCodexExecSource(t *testing.T) {
+	body := []byte(`{"type":"response.output_item.done","item":{"type":"function_call","name":"functions__exec","arguments":"await tools.write_stdin({ session_id: 35879.0 });"}}`)
+	updated, changed := normalizeBody(body, nil)
+	if !changed || strings.Contains(string(updated), `session_id: 35879.0`) || !strings.Contains(string(updated), `session_id: 35879`) {
+		t.Fatalf("namespaced exec source was not normalized: changed=%v body=%s", changed, updated)
+	}
+}
+
+func TestNormalizeExecSourceLeavesStringsCommentsAndFractionsUntouched(t *testing.T) {
+	source := `const text = "session_id: 7.0"; // yield_time_ms: 8.0
+await tools.write_stdin({ session_id: 35879.5, yield_time_ms: 10000.0 });`
+	updated, changed := normalizeSourceIntegers(source)
+	if !changed {
+		t.Fatal("integral source argument was not normalized")
+	}
+	if !strings.Contains(updated, `"session_id: 7.0"`) || !strings.Contains(updated, `// yield_time_ms: 8.0`) {
+		t.Fatalf("string/comment content was changed: %s", updated)
+	}
+	if !strings.Contains(updated, `session_id: 35879.5`) || !strings.Contains(updated, `yield_time_ms: 10000`) {
+		t.Fatalf("fraction or integral source value changed unexpectedly: %s", updated)
+	}
+}
+
 func TestIntegralNumberHonorsSafeIntegerBoundary(t *testing.T) {
 	if got, ok := integralNumber(json.Number("9007199254740991.0")); !ok || got != 9007199254740991 {
 		t.Fatalf("safe integral number = %d, %v", got, ok)
