@@ -11,6 +11,7 @@ Grok can serialize an integral tool argument such as `120000` as `120000.0`. Cod
 - Converts an integral JSON number only when its tool schema declares `integer`.
 - Also converts `wait.yield_time_ms` when its schema declares `number`, matching Codex's `u64` execution contract.
 - Repairs Codex Responses Lite's prose-only `exec` tool source for the known integer fields `session_id`, `yield_time_ms`, and `max_output_tokens` (including namespaced `*__exec` calls).
+- Repairs direct JSON calls to Codex `exec_command`, `write_stdin`, and `wait` for their known integer fields when Lite omits a usable schema.
 - Leaves fractions, unknown fields, strings, unsafe integers, delta events, incomplete JSON, and unmatched models unchanged.
 - Handles both streaming completion events and buffered Responses payloads.
 

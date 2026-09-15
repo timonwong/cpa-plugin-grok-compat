@@ -1,6 +1,6 @@
 # Normalize Complete Tool Arguments Before Translation
 
-The plugin uses CPA's `response_before_translator` capability and rewrites only complete tool-call arguments for configured model globs. It converts integral floats when the tool schema declares an integer, with the explicit `wait.yield_time_ms` compatibility exception. Codex Responses Lite exposes its built-in `exec` tool as prose rather than JSON Schema, so the same boundary includes only the three observed Codex integer fields (`session_id`, `yield_time_ms`, and `max_output_tokens`) in `exec` source text. Fractions, incomplete arguments, and unrelated fields remain unchanged so a representation repair cannot become silent data loss.
+The plugin uses CPA's `response_before_translator` capability and rewrites only complete tool-call arguments for configured model globs. It converts integral floats when the tool schema declares an integer, with the explicit `wait.yield_time_ms` compatibility exception. Codex Responses Lite may omit usable schemas in both forms: its built-in `exec` tool is prose, while `exec_command`, `write_stdin`, and `wait` can arrive as direct JSON calls without integer declarations. The compatibility boundary therefore includes only the observed Codex integer fields for those tool names. Fractions, incomplete arguments, and unrelated fields remain unchanged so a representation repair cannot become silent data loss.
 
 ## Considered Options
 
