@@ -1,4 +1,4 @@
-module github.com/timonwong/cpa-plugin-grok-compat/go
+module github.com/timonwong/cpa-plugin-grok-compat
 
 go 1.26.0
 

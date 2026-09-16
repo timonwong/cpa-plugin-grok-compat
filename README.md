@@ -45,7 +45,7 @@ Patterns use Go `path.Match` syntax (`*`, `?`, and character classes) and are ma
 
 ## Module layout
 
-- `go/abi.go`: CPA C ABI and RPC envelope adapter.
-- `go/config.go`: validated model matcher and runtime configuration snapshot.
-- `go/schema.go`: request tool-schema catalog with a bounded cache for streaming calls.
-- `go/normalizer.go`: targeted Responses event/SSE normalization and safe numeric conversion.
+- `abi.go`: CPA C ABI and RPC envelope adapter.
+- `config.go`: validated model matcher and runtime configuration snapshot.
+- `schema.go`: request tool-schema catalog with a bounded cache for streaming calls.
+- `normalizer.go`: targeted Responses event/SSE normalization and safe numeric conversion.
