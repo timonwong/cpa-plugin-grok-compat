@@ -1,5 +1,4 @@
 PLUGIN_NAME := cpa-plugin-grok-compat
-GO_DIR := go
 BIN_DIR := bin
 
 UNAME_S := $(shell uname -s)
@@ -15,11 +14,11 @@ endif
 
 build:
 	mkdir -p $(BIN_DIR)
-	cd $(GO_DIR) && go build -buildmode=c-shared -o ../$(BIN_DIR)/$(PLUGIN_NAME).$(PLUGIN_EXT) .
+	go build -buildmode=c-shared -o $(BIN_DIR)/$(PLUGIN_NAME).$(PLUGIN_EXT) .
 	rm -f $(BIN_DIR)/$(PLUGIN_NAME).h
 
 test:
-	cd $(GO_DIR) && go test ./...
+	go test ./...
 
 clean:
 	rm -rf $(BIN_DIR)
